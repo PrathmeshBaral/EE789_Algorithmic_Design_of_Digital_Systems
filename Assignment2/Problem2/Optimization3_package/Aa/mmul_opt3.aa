@@ -1,0 +1,244 @@
+$parameter N       64
+$pipe GLOBAL_COUNTER: $uint<32> $signal
+$storage A0 A1 A2 A3 : $array [{N/2}][{N/2}] $of $int<8>
+$storage B0 B1 B2 B3 : $array [{N/2}][{N/2}] $of $int<8>
+$storage R : $array [N][N] $of $int<8>
+
+// to initialize the matrices..
+$module [init_A0_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	A0[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_A1_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	A1[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_A2_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	A2[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_A3_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	A3[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_B0_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	B0[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_B1_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	B1[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_B2_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	B2[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_B3_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	B3[I][J] := ($bitcast ($int<8>) V)
+}
+
+// to read the matrices
+$module [get_A0_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := A0[I][J]
+}
+
+$module [get_A1_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := A1[I][J]
+}
+
+$module [get_A2_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := A2[I][J]
+}
+
+$module [get_A3_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := A3[I][J]
+}
+
+$module [get_B0_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := B0[I][J]
+}
+
+$module [get_B1_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := B1[I][J]
+}
+
+$module [get_B2_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := B2[I][J]
+}
+
+$module [get_B3_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := B3[I][J]
+}
+
+$module [get_result_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := R[I][J]
+}
+
+// Counter to measure time..
+$module [counter_daemon] $in () $out () $is
+{
+	$branchblock[loop] {
+		$dopipeline $depth 7 $fullrate
+		$merge $entry $loopback
+			$phi cval := $zero<32> $on $entry n_cval $on $loopback
+		$endmerge
+		$volatile n_cval := (cval + 1)
+		GLOBAL_COUNTER   := n_cval
+
+		$while 1
+	}
+}
+
+
+$module [mmul] $in () $out (nticks: $uint<32>) $is
+{
+	start_time := GLOBAL_COUNTER
+	$branchblock[bb] {
+	      $merge $entry I_loopback 
+	          $phi I := $zero<8> $on $entry nI $on I_loopback
+	      $endmerge
+	      $volatile nI := (I + 1)
+
+	      $merge $entry J_loopback
+	          $phi J := $zero<8> $on $entry nJ $on J_loopback
+	      $endmerge
+	      $volatile nJ := (J + 1)
+	      
+	      i2 := (I + (N/2))
+    	      j2 := (J + (N/2))
+
+	      R[I][J] := ($call dotp0 (I J))
+	      R[I][j2] := ($call dotp1 (I J))
+	      R[i2][J] := ($call dotp2 (I J))
+	      R[i2][j2] := ($call dotp3 (I J))
+	     
+
+	      $if (J < {{N/2} - 1}) $then $place [J_loopback] $endif
+	      $if (I < {{N/2} - 1}) $then $place [I_loopback] $endif
+	}
+	nticks := (GLOBAL_COUNTER - start_time)
+}
+
+$module [dotp0] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp0] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 1)
+	 $volatile K_continue := (K < {{N/2}-1})
+
+         nSUM0 := (SUM0 + (A0[I][K] * B0[K][J]))
+         nSUM1 := (SUM1 + (A1[I][K] * B2[K][J]))
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1)
+
+	R := (nSUM0 + nSUM1)
+}
+
+$module [dotp1] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp1] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 1)
+	 $volatile K_continue := (K < {{N/2}-1})
+
+         nSUM0 := (SUM0 + (A0[I][K] * B1[K][J]))
+         nSUM1 := (SUM1 + (A1[I][K] * B3[K][J]))
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1)
+
+	R := (nSUM0 + nSUM1)
+}
+
+$module [dotp2] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp2] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 1)
+	 $volatile K_continue := (K < {{N/2}-1})
+
+         nSUM0 := (SUM0 + (A2[I][K] * B0[K][J]))
+         nSUM1 := (SUM1 + (A3[I][K] * B2[K][J]))
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1)
+
+	R := (nSUM0 + nSUM1)
+}
+
+$module [dotp3] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp3] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 1)
+	 $volatile K_continue := (K < {{N/2}-1})
+
+         nSUM0 := (SUM0 + (A2[I][K] * B1[K][J]))
+         nSUM1 := (SUM1 + (A3[I][K] * B3[K][J]))
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1)
+
+	R := (nSUM0 + nSUM1)
+}
+
+
