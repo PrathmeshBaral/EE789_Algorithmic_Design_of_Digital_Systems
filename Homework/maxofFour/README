@@ -1,0 +1,34 @@
+To compile
+
+```
+source compile.sh
+then tun -> ./compile.sh
+
+Compilation steps
+	AaLinkExtMem    link aa files
+	AaOpt           optimize aa
+	Aa2VC           aa -> vc
+	vc2vhdl         vc -> vhdl
+	gcc             testbench compile
+	ghdl            compile and elaborate
+
+Simulation
+	open tmux
+
+	in one pane
+		./maxoffour_system_test_bench
+
+	in another pane
+		./testbench_vhdl <a> <b> <c> <d>
+
+Example
+	./testbench_vhdl 10 20 5 15
+```
+
+To clean
+source clean.sh
+then tun -> ./clean.sh
+
+Note
+works with all inputs
+check vhpi.log for output

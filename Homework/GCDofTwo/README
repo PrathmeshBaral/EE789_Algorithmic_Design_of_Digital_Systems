@@ -1,0 +1,33 @@
+To compile
+
+```
+source compile.sh
+then tun -> ./compile.sh
+
+Compilation steps
+	AaLinkExtMem    link aa files
+	AaOpt           optimize aa
+	Aa2VC           aa -> vc
+	vc2vhdl         vc -> vhdl
+	gcc             testbench compile
+	ghdl            compile and elaborate
+
+Simulation
+	open tmux
+
+	in one pane
+		./gcdoftwo_system_test_bench
+
+	in another pane
+		./testbench_vhdl <a> <b>
+
+Example
+	./testbench_vhdl 6 10
+```
+
+To clean
+source clean.sh
+then tun -> ./clean.sh
+
+Note
+do not use 0 as input

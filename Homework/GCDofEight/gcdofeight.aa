@@ -1,0 +1,42 @@
+$module [gcdoftwo] $in (a b: $uint<32>) $out (y: $uint<32>) $is
+{
+	$branchblock[loop] {
+		$merge $entry loopback
+			$phi p := ( $mux (a > b) a b) $on $entry np $on loopback
+			$phi q := ( $mux (a > b) b a) $on $entry nq $on loopback
+		$endmerge
+		c := (p - q)
+		
+		np := ( $mux (c > q) c q)
+		nq := ( $mux (c > q) q c)
+		
+		$if ( p != q) $then
+			$place[loopback]
+		$else
+			y := p
+		$endif
+	}
+}
+
+$module [gcdofeight] $in (a b c d e f g h: $uint<32>) $out (y: $uint<32>) $is
+{
+
+	$seriesblock
+    	{
+        	$parallelblock [p1]
+        	{
+            		$call gcdoftwo (a b) (p)
+            		$call gcdoftwo (c d) (q)
+            		$call gcdoftwo (e f) (r)
+            		$call gcdoftwo (g h) (s)
+        	} ( p => p q => q r => r s => s)
+
+        	$parallelblock [p2]
+        	{
+            		$call gcdoftwo (p q) (t)
+            		$call gcdoftwo (r s) (u)
+        	} ( t => t u => u)
+
+            	$call gcdoftwo (t u) (y)
+    	}
+}

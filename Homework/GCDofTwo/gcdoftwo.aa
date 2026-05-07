@@ -1,0 +1,19 @@
+$module [gcdoftwo] $in (a b: $uint<32>) $out (y: $uint<32>) $is
+{
+	$branchblock[loop] {
+		$merge $entry loopback
+			$phi p := ( $mux (a > b) a b) $on $entry np $on loopback
+			$phi q := ( $mux (a > b) b a) $on $entry nq $on loopback
+		$endmerge
+		c := (p - q)
+		
+		np := ( $mux (c > q) c q)
+		nq := ( $mux (c > q) q c)
+		
+		$if ( p != q) $then
+			$place[loopback]
+		$else
+			y := p
+		$endif
+	}
+}

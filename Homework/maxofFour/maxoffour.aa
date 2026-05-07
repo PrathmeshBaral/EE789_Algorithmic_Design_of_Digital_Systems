@@ -1,0 +1,6 @@
+$module [maxoffour] $in (a b c d: $uint<32>) $out (e: $uint<32>) $is
+{
+	p := ( $mux (a > b) a b )
+	q := ( $mux (c > d) c d )
+	e := ( $mux (p > q) p q )
+}
