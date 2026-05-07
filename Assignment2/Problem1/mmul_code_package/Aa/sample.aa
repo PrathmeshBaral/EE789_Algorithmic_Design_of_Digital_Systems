@@ -1,0 +1,99 @@
+
+$parameter N       8
+$pipe GLOBAL_COUNTER: $uint<32> $signal
+
+$storage A B RESULT: $array [N][N] $of $int<8>
+
+// to initialize the matrices..
+$module [init_A_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	A[I][J] := ($bitcast ($int<8>) V)
+}
+
+$module [init_B_entry] 
+	$in (I J: $uint<32> V: $int<8>) $out () $is
+{
+	B[I][J] := ($bitcast ($int<8>) V)
+}
+
+// to read the matrices
+$module [get_A_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := A[I][J]
+}
+
+$module [get_B_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := B[I][J]
+}
+
+$module [get_result_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := RESULT[I][J]
+}
+
+
+
+// Counter to measure time..
+$module [counter_daemon] $in () $out () $is
+{
+	$branchblock[loop] {
+		$dopipeline $depth 7 $fullrate
+		$merge $entry $loopback
+			$phi cval := $zero<32> $on $entry n_cval $on $loopback
+		$endmerge
+		$volatile n_cval := (cval + 1)
+		GLOBAL_COUNTER   := n_cval
+
+		$while 1
+	}
+}
+
+
+$module [mmul] $in () $out (nticks: $uint<32>) $is
+{
+	start_time := GLOBAL_COUNTER
+	$branchblock[bb] {
+	      $merge $entry I_loopback 
+	          $phi I := $zero<8> $on $entry nI $on I_loopback
+	      $endmerge
+	      $volatile nI := (I + 1)
+
+	      $merge $entry J_loopback
+	          $phi J := $zero<8> $on $entry nJ $on J_loopback
+	      $endmerge
+	      $volatile nJ := (J + 1)
+
+	      RESULT[I][J] := ($call dotp (I J))
+	     
+
+	      $if (J < {N - 1}) $then $place [J_loopback] $endif
+	      $if (I < {N - 1}) $then $place [I_loopback] $endif
+	}
+	nticks := (GLOBAL_COUNTER - start_time)
+}
+
+$module [dotp] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM := ($bitcast ($int<8>) 0)  $on $entry nSUM $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 1)
+	 $volatile K_continue := (K < {N-1})
+
+         nSUM := (SUM + (A[I][K] * B[K][J]))
+	 $while K_continue
+        } (nSUM => nSUM)
+
+	R := nSUM
+}
+
