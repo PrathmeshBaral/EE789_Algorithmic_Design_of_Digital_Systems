@@ -1,0 +1,277 @@
+$parameter N       64
+$pipe GLOBAL_COUNTER: $uint<32> $signal
+$storage A0 A1 A2 A3 : $array [{N/2}][{N/16}] $of $uint<64>
+$storage B0 B1 B2 B3 : $array [{N/2}][{N/16}] $of $uint<64>
+$storage Result : $array [N][N] $of $int<8>
+
+// to initialize the matrices..
+$module [init_A0_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	A0[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_A1_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	A1[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_A2_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	A2[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_A3_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	A3[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_B0_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	B0[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_B1_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	B1[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_B2_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	B2[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_B3_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	B3[I][J] := ($bitcast ($uint<64>) V)
+}
+
+// to read the matrices
+
+$module [get_result_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := Result[I][J]
+}
+
+// Counter to measure time..
+$module [counter_daemon] $in () $out () $is
+{
+	$branchblock[loop] {
+		$dopipeline $depth 7 $fullrate
+		$merge $entry $loopback
+			$phi cval := $zero<32> $on $entry n_cval $on $loopback
+		$endmerge
+		$volatile n_cval := (cval + 1)
+		GLOBAL_COUNTER   := n_cval
+
+		$while 1
+	}
+}
+
+
+$module [mmul] $in () $out (nticks: $uint<32>) $is
+{
+	start_time := GLOBAL_COUNTER
+	$branchblock[bb] {
+	      $merge $entry I_loopback 
+	          $phi I := $zero<8> $on $entry nI $on I_loopback
+	      $endmerge
+	      $volatile nI := (I + 1)
+
+	      $merge $entry J_loopback
+	          $phi J := $zero<8> $on $entry nJ $on J_loopback
+	      $endmerge
+	      $volatile nJ := (J + 1)
+	      
+	      i2 := (I + (N/2))
+    	      j2 := (J + (N/2))
+
+	      Result[I][J] := ($call dotp0 (I J))
+	      Result[I][j2] := ($call dotp1 (I J))
+	      Result[i2][J] := ($call dotp2 (I J))
+	      Result[i2][j2] := ($call dotp3 (I J))
+     
+
+	      $if (J < {{N/2} - 1}) $then $place [J_loopback] $endif
+	      $if (I < {{N/2} - 1}) $then $place [I_loopback] $endif
+	}
+	nticks := (GLOBAL_COUNTER - start_time)
+}
+
+$module [dotp0] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp0] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+              $phi SUM2 := ($bitcast ($int<8>) 0)  $on $entry nSUM2 $on $loopback
+              $phi SUM3 := ($bitcast ($int<8>) 0)  $on $entry nSUM3 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 2)
+	 $volatile K_continue := (K < {{N/16}-2})
+
+	 $volatile K2 := (K + 1)
+
+	 nSUM0 := (SUM0 + ($call dot8 (A0[I][K] B0[J][K])))
+	 nSUM1 := (SUM1 + ($call dot8 (A1[I][K] B2[J][K])))
+	 nSUM2 := (SUM2 + ($call dot8 (A0[I][K2] B0[J][K2])))
+	 nSUM3 := (SUM3 + ($call dot8 (A1[I][K2] B2[J][K2])))
+
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1 nSUM2 => nSUM2 nSUM3 => nSUM3)
+
+	R := ((nSUM0 + nSUM1) + (nSUM2 + nSUM3))
+}
+
+
+$module [dotp1] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp1] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+              $phi SUM2 := ($bitcast ($int<8>) 0)  $on $entry nSUM2 $on $loopback
+              $phi SUM3 := ($bitcast ($int<8>) 0)  $on $entry nSUM3 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 2)
+	 $volatile K_continue := (K < {{N/16}-2})
+
+	 $volatile K2 := (K + 1)
+
+	 nSUM0 := (SUM0 + ($call dot8 (A0[I][K] B1[J][K])))
+	 nSUM1 := (SUM1 + ($call dot8 (A1[I][K] B3[J][K])))
+	 nSUM2 := (SUM2 + ($call dot8 (A0[I][K2] B1[J][K2])))
+	 nSUM3 := (SUM3 + ($call dot8 (A1[I][K2] B3[J][K2])))
+
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1 nSUM2 => nSUM2 nSUM3 => nSUM3)
+
+	R := ((nSUM0 + nSUM1) + (nSUM2 + nSUM3))
+}
+
+$module [dotp2] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp2] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+              $phi SUM2 := ($bitcast ($int<8>) 0)  $on $entry nSUM2 $on $loopback
+              $phi SUM3 := ($bitcast ($int<8>) 0)  $on $entry nSUM3 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 2)
+	 $volatile K_continue := (K < {{N/16}-2})
+
+	 $volatile K2 := (K + 1)
+
+	 nSUM0 := (SUM0 + ($call dot8 (A2[I][K] B0[J][K])))
+	 nSUM1 := (SUM1 + ($call dot8 (A3[I][K] B2[J][K])))
+	 nSUM2 := (SUM2 + ($call dot8 (A2[I][K2] B0[J][K2])))
+	 nSUM3 := (SUM3 + ($call dot8 (A3[I][K2] B2[J][K2])))
+
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1 nSUM2 => nSUM2 nSUM3 => nSUM3)
+
+	R := ((nSUM0 + nSUM1) + (nSUM2 + nSUM3))
+
+}
+
+$module [dotp3] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp3] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM0 := ($bitcast ($int<8>) 0)  $on $entry nSUM0 $on $loopback
+              $phi SUM1 := ($bitcast ($int<8>) 0)  $on $entry nSUM1 $on $loopback
+              $phi SUM2 := ($bitcast ($int<8>) 0)  $on $entry nSUM2 $on $loopback
+              $phi SUM3 := ($bitcast ($int<8>) 0)  $on $entry nSUM3 $on $loopback
+	      $phi K   := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	 $volatile nK := (K + 2)
+	 $volatile K_continue := (K < {{N/16}-2})
+
+	 $volatile K2 := (K + 1)
+
+	 nSUM0 := (SUM0 + ($call dot8 (A2[I][K] B1[J][K])))
+	 nSUM1 := (SUM1 + ($call dot8 (A3[I][K] B3[J][K])))
+	 nSUM2 := (SUM2 + ($call dot8 (A2[I][K2] B1[J][K2])))
+	 nSUM3 := (SUM3 + ($call dot8 (A3[I][K2] B3[J][K2])))
+
+	 $while K_continue
+        } (nSUM0 => nSUM0 nSUM1 => nSUM1 nSUM2 => nSUM2 nSUM3 => nSUM3)
+
+	R := ((nSUM0 + nSUM1) + (nSUM2 + nSUM3))
+}
+
+
+$pipeline $depth 7 $fullrate $operator
+$module[dot8] $in (M N: $uint<64>) $out (R: $int<8>)
+$is
+{
+	// Split into 8 elements (each 8-bit)	
+	$volatile $split (M 8 8 8 8 8 8 8 8) (M0 M1 M2 M3 M4 M5 M6 M7)
+	$volatile $split (N 8 8 8 8 8 8 8 8) (N0 N1 N2 N3 N4 N5 N6 N7)
+
+  	// Convert to signed
+  	$volatile iM0 := ($bitcast ($int<8>) M0)
+  	$volatile iM1 := ($bitcast ($int<8>) M1)
+  	$volatile iM2 := ($bitcast ($int<8>) M2)
+  	$volatile iM3 := ($bitcast ($int<8>) M3)
+  	$volatile iM4 := ($bitcast ($int<8>) M4)
+  	$volatile iM5 := ($bitcast ($int<8>) M5)
+  	$volatile iM6 := ($bitcast ($int<8>) M6)
+  	$volatile iM7 := ($bitcast ($int<8>) M7)
+
+  	$volatile iN0 := ($bitcast ($int<8>) N0)
+  	$volatile iN1 := ($bitcast ($int<8>) N1)
+  	$volatile iN2 := ($bitcast ($int<8>) N2)
+  	$volatile iN3 := ($bitcast ($int<8>) N3)
+  	$volatile iN4 := ($bitcast ($int<8>) N4)
+  	$volatile iN5 := ($bitcast ($int<8>) N5)
+  	$volatile iN6 := ($bitcast ($int<8>) N6)
+  	$volatile iN7 := ($bitcast ($int<8>) N7)
+
+  	// 8 parallel multiplications
+  	P0 := (iM0 * iN0)
+  	P1 := (iM1 * iN1)
+  	P2 := (iM2 * iN2)
+  	P3 := (iM3 * iN3)
+  	P4 := (iM4 * iN4)
+  	P5 := (iM5 * iN5)
+  	P6 := (iM6 * iN6)
+  	P7 := (iM7 * iN7)
+
+  	// Adder tree (log depth reduction)
+  	S0 := (P0 + P1)
+  	S1 := (P2 + P3)
+  	S2 := (P4 + P5)
+  	S3 := (P6 + P7)
+
+  	T0 := (S0 + S1)
+  	T1 := (S2 + S3)
+
+  	R := (T0 + T1)
+}
+
+
