@@ -1,0 +1,136 @@
+$parameter N       64
+$pipe GLOBAL_COUNTER: $uint<32> $signal
+
+$storage RESULT : $array [N][N] $of $int<8>
+$storage A B : $array[N][{N/8}] $of $uint<64>
+
+// to initialize the matrices..
+$module [init_A_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	A[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [init_B_entry] 
+	$in (I J: $uint<32> V: $uint<64>) $out () $is
+{
+	B[I][J] := ($bitcast ($uint<64>) V)
+}
+
+$module [get_result_entry] 
+	$in (I J: $uint<32>) $out(V: $int<8>) $is
+{
+	V := RESULT[I][J]
+}
+
+
+
+// Counter to measure time..
+$module [counter_daemon] $in () $out () $is
+{
+	$branchblock[loop] {
+		$dopipeline $depth 7 $fullrate
+		$merge $entry $loopback
+			$phi cval := $zero<32> $on $entry n_cval $on $loopback
+		$endmerge
+		$volatile n_cval := (cval + 1)
+		GLOBAL_COUNTER   := n_cval
+
+		$while 1
+	}
+}
+
+
+$module [mmul] $in () $out (nticks: $uint<32>) $is
+{
+	start_time := GLOBAL_COUNTER
+	$branchblock[bb] {
+	      $merge $entry I_loopback 
+	          $phi I := $zero<8> $on $entry nI $on I_loopback
+	      $endmerge
+	      $volatile nI := (I + 1)
+
+	      $merge $entry J_loopback
+	          $phi J := $zero<8> $on $entry nJ $on J_loopback
+	      $endmerge
+	      $volatile nJ := (J + 1)
+
+	      RESULT[I][J] := ($call dotp (I J))
+	     
+
+	      $if (J < {N - 1}) $then $place [J_loopback] $endif
+	      $if (I < {N - 1}) $then $place [I_loopback] $endif
+	}
+	nticks := (GLOBAL_COUNTER - start_time)
+}
+
+$module [dotp] $in (I J: $uint<8>) $out (R: $int<8>) $is
+{
+      $branchblock[dotp] {
+         $dopipeline $depth 7 $fullrate 
+
+         $merge $entry $loopback 
+              $phi SUM := ($bitcast ($int<8>) 0)  $on $entry nSUM $on $loopback
+	      $phi K    := $zero<8> $on $entry nK $on $loopback
+         $endmerge
+
+	$volatile nK := (K + 1)
+	$volatile K_continue := (K < {{N/8}-1})
+
+        nSUM := (SUM + ($call dot8 (A[I][K] B[J][K])))
+
+	 $while K_continue
+        } (nSUM => nSUM)
+
+	R := nSUM
+}
+
+$pipeline $depth 7 $fullrate $operator
+$module[dot8] $in (A B: $uint<64>) $out (R: $int<8>)
+$is
+{
+	// Split into 8 elements (each 8-bit)	
+	$volatile $split (A 8 8 8 8 8 8 8 8) (A0 A1 A2 A3 A4 A5 A6 A7)
+	$volatile $split (B 8 8 8 8 8 8 8 8) (B0 B1 B2 B3 B4 B5 B6 B7)
+
+  	// Convert to signed
+  	$volatile iA0 := ($bitcast ($int<8>) A0)
+  	$volatile iA1 := ($bitcast ($int<8>) A1)
+  	$volatile iA2 := ($bitcast ($int<8>) A2)
+  	$volatile iA3 := ($bitcast ($int<8>) A3)
+  	$volatile iA4 := ($bitcast ($int<8>) A4)
+  	$volatile iA5 := ($bitcast ($int<8>) A5)
+  	$volatile iA6 := ($bitcast ($int<8>) A6)
+  	$volatile iA7 := ($bitcast ($int<8>) A7)
+
+  	$volatile iB0 := ($bitcast ($int<8>) B0)
+  	$volatile iB1 := ($bitcast ($int<8>) B1)
+  	$volatile iB2 := ($bitcast ($int<8>) B2)
+  	$volatile iB3 := ($bitcast ($int<8>) B3)
+  	$volatile iB4 := ($bitcast ($int<8>) B4)
+  	$volatile iB5 := ($bitcast ($int<8>) B5)
+  	$volatile iB6 := ($bitcast ($int<8>) B6)
+  	$volatile iB7 := ($bitcast ($int<8>) B7)
+
+  	// 8 parallel multiplications
+  	P0 := (iA0 * iB0)
+  	P1 := (iA1 * iB1)
+  	P2 := (iA2 * iB2)
+  	P3 := (iA3 * iB3)
+  	P4 := (iA4 * iB4)
+  	P5 := (iA5 * iB5)
+  	P6 := (iA6 * iB6)
+  	P7 := (iA7 * iB7)
+
+  	// Adder tree (log depth reduction)
+  	S0 := (P0 + P1)
+  	S1 := (P2 + P3)
+  	S2 := (P4 + P5)
+  	S3 := (P6 + P7)
+
+  	T0 := (S0 + S1)
+  	T1 := (S2 + S3)
+
+  	R := (T0 + T1)
+}
+
